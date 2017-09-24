@@ -5,6 +5,7 @@ from glob import glob
 import tensorflow as tf
 import numpy as np
 from six.moves import xrange
+import sys
 
 from ops import *
 from utils import *
@@ -74,24 +75,49 @@ class pix2pix(object):
 
         self.real_B = self.real_data[:, :, :, :self.input_c_dim]
         self.real_A = self.real_data[:, :, :, self.input_c_dim:self.input_c_dim + self.output_c_dim]
+ 
+        noise1 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
+        noise2 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
+        self.real_A_noisy1 = tf.concat([self.real_A, noise1], 3)
+        self.real_A_noisy2 = tf.concat([self.real_A, noise2], 3) 
 
-        self.fake_B = self.generator(self.real_A)
+        self.real_A2 = tf.concat([self.real_A_noisy1, self.real_A_noisy2], 0)
+
+        # Original shape: [1, 256, 256, 3]
+        # New shape:      [1, 2, 256, 256, 3]
+        self.fake_B = self.generator(self.real_A2)
+
 
         self.real_AB = tf.concat([self.real_A, self.real_B], 3)
-        self.fake_AB = tf.concat([self.real_A, self.fake_B], 3)
+
+        # Loop through extra output dimension, usually of size 2.
+        fake_AB_pairs = []
+
+        for index in range(self.fake_B.shape[0]):
+            fake_AB_pairs.append(tf.concat([self.real_A, self.fake_B[index: index+1, ...]], 3))
+
+        # self.fake_AB will have batch size of fake_B.shape[1]*batch_size.
+        self.fake_AB = tf.concat(fake_AB_pairs, 0)
+
+        #self.fake_AB = tf.concat([self.real_A, self.fake_B], 3)
+
         self.D, self.D_logits = self.discriminator(self.real_AB, reuse=False)
         self.D_, self.D_logits_ = self.discriminator(self.fake_AB, reuse=True)
 
-        self.fake_B_sample = self.sampler(self.real_A)
+        self.fake_B_sample = self.sampler(self.real_A2)
 
         self.d_sum = tf.summary.histogram("d", self.D)
-        self.d__sum = tf.summary.histogram("d_", self.D_)
-        self.fake_B_sum = tf.summary.image("fake_B", self.fake_B)
-
+        self.d__sum = tf.summary.histogram("d_", self.D_[:1])
+        self.fake_B_sum = tf.summary.image("fake_B", self.fake_B[:1])
+  
         self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
         self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
+        
         self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
+                        - 0.1*tf.reduce_mean(tf.abs(self.fake_B[0] - self.fake_B[1])) \
                         + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
+        #self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
+        #                + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
 
         self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
         self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
@@ -125,7 +151,8 @@ class pix2pix(object):
             [self.fake_B_sample, self.d_loss, self.g_loss],
             feed_dict={self.real_data: sample_images}
         )
-        save_images(samples, [self.batch_size, 1],
+
+        save_images(samples, [self.batch_size*2, 1],
                     './{}/train_{:02d}_{:04d}.png'.format(sample_dir, epoch, idx))
         print("[Sample] d_loss: {:.8f}, g_loss: {:.8f}".format(d_loss, g_loss))
 
@@ -212,8 +239,8 @@ class pix2pix(object):
             h2 = lrelu(self.d_bn2(conv2d(h1, self.df_dim*4, name='d_h2_conv')))
             # h2 is (32x 32 x self.df_dim*4)
             h3 = lrelu(self.d_bn3(conv2d(h2, self.df_dim*8, d_h=1, d_w=1, name='d_h3_conv')))
-            # h3 is (16 x 16 x self.df_dim*8)
-            h4 = linear(tf.reshape(h3, [self.batch_size, -1]), 1, 'd_h3_lin')
+            # h3 is (16 x 16 x self.df_dim*8)          
+            h4 = linear(tf.reshape(h3, [h3.shape[0].value, -1]), 1, 'd_h3_lin')
 
             return tf.nn.sigmoid(h4), h4
 
@@ -242,49 +269,49 @@ class pix2pix(object):
             # e8 is (1 x 1 x self.gf_dim*8)
 
             self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(e8),
-                [self.batch_size, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
+                [self.batch_size*2, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
             d1 = tf.nn.dropout(self.g_bn_d1(self.d1), 0.5)
             d1 = tf.concat([d1, e7], 3)
             # d1 is (2 x 2 x self.gf_dim*8*2)
 
             self.d2, self.d2_w, self.d2_b = deconv2d(tf.nn.relu(d1),
-                [self.batch_size, s64, s64, self.gf_dim*8], name='g_d2', with_w=True)
+                [self.batch_size*2, s64, s64, self.gf_dim*8], name='g_d2', with_w=True)
             d2 = tf.nn.dropout(self.g_bn_d2(self.d2), 0.5)
             d2 = tf.concat([d2, e6], 3)
             # d2 is (4 x 4 x self.gf_dim*8*2)
 
             self.d3, self.d3_w, self.d3_b = deconv2d(tf.nn.relu(d2),
-                [self.batch_size, s32, s32, self.gf_dim*8], name='g_d3', with_w=True)
+                [self.batch_size*2, s32, s32, self.gf_dim*8], name='g_d3', with_w=True)
             d3 = tf.nn.dropout(self.g_bn_d3(self.d3), 0.5)
             d3 = tf.concat([d3, e5], 3)
             # d3 is (8 x 8 x self.gf_dim*8*2)
 
             self.d4, self.d4_w, self.d4_b = deconv2d(tf.nn.relu(d3),
-                [self.batch_size, s16, s16, self.gf_dim*8], name='g_d4', with_w=True)
+                [self.batch_size*2, s16, s16, self.gf_dim*8], name='g_d4', with_w=True)
             d4 = self.g_bn_d4(self.d4)
             d4 = tf.concat([d4, e4], 3)
             # d4 is (16 x 16 x self.gf_dim*8*2)
 
             self.d5, self.d5_w, self.d5_b = deconv2d(tf.nn.relu(d4),
-                [self.batch_size, s8, s8, self.gf_dim*4], name='g_d5', with_w=True)
+                [self.batch_size*2, s8, s8, self.gf_dim*4], name='g_d5', with_w=True)
             d5 = self.g_bn_d5(self.d5)
             d5 = tf.concat([d5, e3], 3)
             # d5 is (32 x 32 x self.gf_dim*4*2)
 
             self.d6, self.d6_w, self.d6_b = deconv2d(tf.nn.relu(d5),
-                [self.batch_size, s4, s4, self.gf_dim*2], name='g_d6', with_w=True)
+                [self.batch_size*2, s4, s4, self.gf_dim*2], name='g_d6', with_w=True)
             d6 = self.g_bn_d6(self.d6)
             d6 = tf.concat([d6, e2], 3)
             # d6 is (64 x 64 x self.gf_dim*2*2)
 
             self.d7, self.d7_w, self.d7_b = deconv2d(tf.nn.relu(d6),
-                [self.batch_size, s2, s2, self.gf_dim], name='g_d7', with_w=True)
+                [self.batch_size*2, s2, s2, self.gf_dim], name='g_d7', with_w=True)
             d7 = self.g_bn_d7(self.d7)
             d7 = tf.concat([d7, e1], 3)
             # d7 is (128 x 128 x self.gf_dim*1*2)
 
             self.d8, self.d8_w, self.d8_b = deconv2d(tf.nn.relu(d7),
-                [self.batch_size, s, s, self.output_c_dim], name='g_d8', with_w=True)
+                [self.batch_size*2, s, s, self.output_c_dim], name='g_d8', with_w=True)
             # d8 is (256 x 256 x output_c_dim)
 
             return tf.nn.tanh(self.d8)
@@ -316,49 +343,49 @@ class pix2pix(object):
             # e8 is (1 x 1 x self.gf_dim*8)
 
             self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(e8),
-                [self.batch_size, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
+                [self.batch_size*2, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
             d1 = tf.nn.dropout(self.g_bn_d1(self.d1), 0.5)
             d1 = tf.concat([d1, e7], 3)
             # d1 is (2 x 2 x self.gf_dim*8*2)
 
             self.d2, self.d2_w, self.d2_b = deconv2d(tf.nn.relu(d1),
-                [self.batch_size, s64, s64, self.gf_dim*8], name='g_d2', with_w=True)
+                [self.batch_size*2, s64, s64, self.gf_dim*8], name='g_d2', with_w=True)
             d2 = tf.nn.dropout(self.g_bn_d2(self.d2), 0.5)
             d2 = tf.concat([d2, e6], 3)
             # d2 is (4 x 4 x self.gf_dim*8*2)
 
             self.d3, self.d3_w, self.d3_b = deconv2d(tf.nn.relu(d2),
-                [self.batch_size, s32, s32, self.gf_dim*8], name='g_d3', with_w=True)
+                [self.batch_size*2, s32, s32, self.gf_dim*8], name='g_d3', with_w=True)
             d3 = tf.nn.dropout(self.g_bn_d3(self.d3), 0.5)
             d3 = tf.concat([d3, e5], 3)
             # d3 is (8 x 8 x self.gf_dim*8*2)
 
             self.d4, self.d4_w, self.d4_b = deconv2d(tf.nn.relu(d3),
-                [self.batch_size, s16, s16, self.gf_dim*8], name='g_d4', with_w=True)
+                [self.batch_size*2, s16, s16, self.gf_dim*8], name='g_d4', with_w=True)
             d4 = self.g_bn_d4(self.d4)
             d4 = tf.concat([d4, e4], 3)
             # d4 is (16 x 16 x self.gf_dim*8*2)
 
             self.d5, self.d5_w, self.d5_b = deconv2d(tf.nn.relu(d4),
-                [self.batch_size, s8, s8, self.gf_dim*4], name='g_d5', with_w=True)
+                [self.batch_size*2, s8, s8, self.gf_dim*4], name='g_d5', with_w=True)
             d5 = self.g_bn_d5(self.d5)
             d5 = tf.concat([d5, e3], 3)
             # d5 is (32 x 32 x self.gf_dim*4*2)
 
             self.d6, self.d6_w, self.d6_b = deconv2d(tf.nn.relu(d5),
-                [self.batch_size, s4, s4, self.gf_dim*2], name='g_d6', with_w=True)
+                [self.batch_size*2, s4, s4, self.gf_dim*2], name='g_d6', with_w=True)
             d6 = self.g_bn_d6(self.d6)
             d6 = tf.concat([d6, e2], 3)
             # d6 is (64 x 64 x self.gf_dim*2*2)
 
             self.d7, self.d7_w, self.d7_b = deconv2d(tf.nn.relu(d6),
-                [self.batch_size, s2, s2, self.gf_dim], name='g_d7', with_w=True)
+                [self.batch_size*2, s2, s2, self.gf_dim], name='g_d7', with_w=True)
             d7 = self.g_bn_d7(self.d7)
             d7 = tf.concat([d7, e1], 3)
             # d7 is (128 x 128 x self.gf_dim*1*2)
 
             self.d8, self.d8_w, self.d8_b = deconv2d(tf.nn.relu(d7),
-                [self.batch_size, s, s, self.output_c_dim], name='g_d8', with_w=True)
+                [self.batch_size*2, s, s, self.output_c_dim], name='g_d8', with_w=True)
             # d8 is (256 x 256 x output_c_dim)
 
             return tf.nn.tanh(self.d8)
@@ -427,5 +454,5 @@ class pix2pix(object):
                 self.fake_B_sample,
                 feed_dict={self.real_data: sample_image}
             )
-            save_images(samples, [self.batch_size, 1],
+            save_images(samples, [self.batch_size*2, 1],
                         './{}/test_{:04d}.png'.format(args.test_dir, idx))
