@@ -124,11 +124,11 @@ class pix2pix(object):
         self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
         self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
         
-        # self.fake_B_norm_1 = self.fake_B[0] - tf.reduce_mean(self.fake_B[0])
-        # self.fake_B_norm_2 = self.fake_B[1] - tf.reduce_mean(self.fake_B[1])
+        self.fake_B_norm_1 = self.fake_B[0] - tf.reduce_mean(self.fake_B[0])
+        self.fake_B_norm_2 = self.fake_B[1] - tf.reduce_mean(self.fake_B[1])
 
         self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
-                        - 20*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
+                        - 1*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
                         + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
         #self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
         #                + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
@@ -467,7 +467,6 @@ class pix2pix(object):
 
         for i, sample_image in enumerate(sample_images):
             idx = i+1
-            print("sampling image ", idx)
             #print sample_image.shape
             # plt.imshow(sample_image[0][:,:,:3])
             # plt.show()
@@ -477,6 +476,5 @@ class pix2pix(object):
                 self.fake_B_sample,
                 feed_dict={self.real_data: sample_image}
             )
-            print 'test ' + str(samples.shape)
             save_images(samples, [self.batch_size*2, 1],
                         './{}/test_{:04d}.png'.format(args.test_dir, idx))
