@@ -10,6 +10,8 @@ import sys
 from ops import *
 from utils import *
 
+import matplotlib.pyplot as plt
+
 class pix2pix(object):
     def __init__(self, sess, image_size=256,
                  batch_size=1, sample_size=1, output_size=256,
@@ -79,14 +81,20 @@ class pix2pix(object):
         noise1 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
         noise2 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
         self.real_A_noisy1 = tf.concat([self.real_A, noise1], 3)
-        self.real_A_noisy2 = tf.concat([self.real_A, noise2], 3) 
+        self.real_A_noisy2 = tf.concat([self.real_A, noise2], 3)
 
         self.real_A2 = tf.concat([self.real_A_noisy1, self.real_A_noisy2], 0)
 
+        print '1 ' + str(self.real_A_noisy1.shape)
+        print '2 ' + str(self.real_A_noisy2.shape)
+        print '3 ' + str(self.real_A2.shape)
+
         # Original shape: [1, 256, 256, 3]
         # New shape:      [1, 2, 256, 256, 3]
-        self.fake_B = self.generator(self.real_A2)
 
+        print self.real_A2.shape
+        self.fake_B = self.generator(self.real_A2)
+        print self.fake_B.shape
 
         self.real_AB = tf.concat([self.real_A, self.real_B], 3)
 
@@ -101,10 +109,13 @@ class pix2pix(object):
 
         #self.fake_AB = tf.concat([self.real_A, self.fake_B], 3)
 
+        print self.real_AB.shape, self.fake_AB.shape
         self.D, self.D_logits = self.discriminator(self.real_AB, reuse=False)
         self.D_, self.D_logits_ = self.discriminator(self.fake_AB, reuse=True)
+        print self.D.shape, self.D_.shape
 
         self.fake_B_sample = self.sampler(self.real_A2)
+        print self.fake_B_sample.shape
 
         self.d_sum = tf.summary.histogram("d", self.D)
         self.d__sum = tf.summary.histogram("d_", self.D_[:1])
@@ -113,8 +124,11 @@ class pix2pix(object):
         self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
         self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
         
+        # self.fake_B_norm_1 = self.fake_B[0] - tf.reduce_mean(self.fake_B[0])
+        # self.fake_B_norm_2 = self.fake_B[1] - tf.reduce_mean(self.fake_B[1])
+
         self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
-                        - 0.1*tf.reduce_mean(tf.abs(self.fake_B[0] - self.fake_B[1])) \
+                        - 20*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
                         + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
         #self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
         #                + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
@@ -247,6 +261,8 @@ class pix2pix(object):
     def generator(self, image, y=None):
         with tf.variable_scope("generator") as scope:
 
+            print 'gen ' + str(image.shape)
+
             s = self.output_size
             s2, s4, s8, s16, s32, s64, s128 = int(s/2), int(s/4), int(s/8), int(s/16), int(s/32), int(s/64), int(s/128)
 
@@ -320,6 +336,8 @@ class pix2pix(object):
 
         with tf.variable_scope("generator") as scope:
             scope.reuse_variables()
+
+            print 'sampler ' + str(image.shape)
 
             s = self.output_size
             s2, s4, s8, s16, s32, s64, s128 = int(s/2), int(s/4), int(s/8), int(s/16), int(s/32), int(s/64), int(s/128)
@@ -450,9 +468,15 @@ class pix2pix(object):
         for i, sample_image in enumerate(sample_images):
             idx = i+1
             print("sampling image ", idx)
+            #print sample_image.shape
+            # plt.imshow(sample_image[0][:,:,:3])
+            # plt.show()
+            # plt.imshow(sample_image[0][:,:,3:])
+            # plt.show()
             samples = self.sess.run(
                 self.fake_B_sample,
                 feed_dict={self.real_data: sample_image}
             )
+            print 'test ' + str(samples.shape)
             save_images(samples, [self.batch_size*2, 1],
                         './{}/test_{:04d}.png'.format(args.test_dir, idx))
