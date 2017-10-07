@@ -78,13 +78,13 @@ class pix2pix(object):
         self.real_B = self.real_data[:, :, :, :self.input_c_dim]
         self.real_A = self.real_data[:, :, :, self.input_c_dim:self.input_c_dim + self.output_c_dim]
  
-        # noise1 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
-        # noise2 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
-        # self.real_A_noisy1 = tf.concat([self.real_A, noise1], 3)
-        # self.real_A_noisy2 = tf.concat([self.real_A, noise2], 3)
+        noise1 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
+        noise2 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
+        self.real_A_noisy1 = tf.concat([self.real_A, noise1], 3)
+        self.real_A_noisy2 = tf.concat([self.real_A, noise2], 3)
 
-        # self.real_A2 = tf.concat([self.real_A_noisy1, self.real_A_noisy2], 0)
-        self.real_A2 = tf.concat([self.real_A, self.real_A], 0)
+        self.real_A2 = tf.concat([self.real_A_noisy1, self.real_A_noisy2], 0)
+        # self.real_A2 = tf.concat([self.real_A, self.real_A], 0)
 
         print '1 ' + str(self.real_A_noisy1.shape)
         print '2 ' + str(self.real_A_noisy2.shape)
@@ -129,7 +129,7 @@ class pix2pix(object):
         self.fake_B_norm_2 = self.fake_B[1] - tf.reduce_mean(self.fake_B[1])
 
         self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
-                        - 1*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
+                        - 10*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
                         + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
         #self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
         #                + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
@@ -285,9 +285,11 @@ class pix2pix(object):
             e8 = self.g_bn_e8(conv2d(lrelu(e7), self.gf_dim*8, name='g_e8_conv'))
             # e8 is (1 x 1 x self.gf_dim*8)
 
-            noise = tf.random_uniform(e8[:-1].as_list() + [1,])
-            e8_noisy = tf.concat([self.e8, noise], 3)
-            print e8_noisy.shape
+            print "e8", e8.shape
+            noise = tf.random_uniform(e8.shape[:-1].as_list() + [1,])
+            e8_noisy =  tf.add(e8, noise)
+            # e8_noisy = tf.concat([e8, noise], 3)
+            print "e8 noisy", e8_noisy.shape
 
             self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(e8_noisy),
                 [self.batch_size*2, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
@@ -365,7 +367,12 @@ class pix2pix(object):
             e8 = self.g_bn_e8(conv2d(lrelu(e7), self.gf_dim*8, name='g_e8_conv'))
             # e8 is (1 x 1 x self.gf_dim*8)
 
-            self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(e8),
+            noise = tf.random_uniform(e8.shape)
+            e8_noisy =  tf.add(e8, noise)
+            # noise = tf.random_uniform(e8.shape[:-1].as_list() + [1,])
+            # e8_noisy = tf.concat([e8, noise], 3)
+
+            self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(e8_noisy),
                 [self.batch_size*2, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
             d1 = tf.nn.dropout(self.g_bn_d1(self.d1), 0.5)
             d1 = tf.concat([d1, e7], 3)
