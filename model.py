@@ -129,7 +129,7 @@ class pix2pix(object):
         self.fake_B_norm_2 = self.fake_B[1] - tf.reduce_mean(self.fake_B[1])
 
         self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
-                        - 10*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
+                        - 5*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
                         + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
         #self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
         #                + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
@@ -194,14 +194,26 @@ class pix2pix(object):
         else:
             print(" [!] Load failed...")
 
+        data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
+        if False:
+            image_data = np.array([load_data(file) for file in data])
+            print 'image data shape save', image_data.shape
+            np.save('facades.npy', image_data)
+        else:
+            image_data = np.load('facades.npy')
+            print 'image data shape load', image_data.shape
+
         for epoch in xrange(args.epoch):
-            data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
+            # data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
             #np.random.shuffle(data)
             batch_idxs = min(len(data), args.train_size) // self.batch_size
 
             for idx in xrange(0, batch_idxs):
-                batch_files = data[idx*self.batch_size:(idx+1)*self.batch_size]
-                batch = [load_data(batch_file) for batch_file in batch_files]
+                if True:
+                    batch_files = data[idx*self.batch_size:(idx+1)*self.batch_size]
+                    batch = [load_data(batch_file) for batch_file in batch_files]
+                else:
+                    batch = image_data[idx*self.batch_size:(idx+1)*self.batch_size]
                 if (self.is_grayscale):
                     batch_images = np.array(batch).astype(np.float32)[:, :, :, None]
                 else:
@@ -454,7 +466,7 @@ class pix2pix(object):
         sample_files = glob('./datasets/{}/val/*.jpg'.format(self.dataset_name))
 
         # sort testing input
-        n = [int(i) for i in map(lambda x: x.split('/')[-1].split('.jpg')[0], sample_files)]
+        n = [int(i[:-3]) for i in map(lambda x: x.split('/')[-1].split('.jpg')[0], sample_files)]
         sample_files = [x for (y, x) in sorted(zip(n, sample_files))]
 
         # load testing input
