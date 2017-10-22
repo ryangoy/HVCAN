@@ -17,7 +17,7 @@ class pix2pix(object):
                  batch_size=1, sample_size=1, output_size=256,
                  gf_dim=64, df_dim=64, L1_lambda=100,
                  input_c_dim=3, output_c_dim=3, dataset_name='facades',
-                 checkpoint_dir=None, sample_dir=None):
+                 checkpoint_dir=None, sample_dir=None, n_z=256):
         """
 
         Args:
@@ -35,6 +35,7 @@ class pix2pix(object):
         self.image_size = image_size
         self.sample_size = sample_size
         self.output_size = output_size
+        self.n_z = n_z
 
         self.gf_dim = gf_dim
         self.df_dim = df_dim
@@ -128,13 +129,20 @@ class pix2pix(object):
         self.fake_B_norm_1 = self.fake_B[0] - tf.reduce_mean(self.fake_B[0])
         self.fake_B_norm_2 = self.fake_B[1] - tf.reduce_mean(self.fake_B[1])
 
-        self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
-                        - 5*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
-                        + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
+        # self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
+        #                 - 5*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
+        #                 + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
+
+        self.fake_B_norm_1 = tf.expand_dims(self.fake_B_norm_1, 0)
+        self.fake_B_norm_2 = tf.expand_dims(self.fake_B_norm_2, 0)
+
+        self.latent_loss = tf.reduce_mean(0.5 * tf.reduce_sum(tf.square(self.z_mu) + tf.square(self.z_sigma) - tf.log(tf.square(self.z_sigma)) -1, 1))
 
         self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
-                        - self.tf_ssim(self.fake_B_norm_1, self.fake_B_norm_2) \
-                        + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
+                        +self.latent_loss \
+                        + 0.5* self.tf_ssim(self.fake_B_norm_1, self.fake_B_norm_2)
+                        #+ self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B)) \
+
         #self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
         #                + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
 
@@ -199,13 +207,13 @@ class pix2pix(object):
             print(" [!] Load failed...")
 
         data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
-        if False:
-            image_data = np.array([load_data(file) for file in data])
-            print 'image data shape save', image_data.shape
-            np.save('facades.npy', image_data)
-        else:
-            image_data = np.load('facades.npy')
-            print 'image data shape load', image_data.shape
+        # if False:
+        #     image_data = np.array([load_data(file) for file in data])
+        #     print 'image data shape save', image_data.shape
+        #     np.save('facades.npy', image_data)
+        # else:
+        #     image_data = np.load('facades.npy')
+        #     print 'image data shape load', image_data.shape
 
         for epoch in xrange(args.epoch):
             # data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
@@ -278,7 +286,6 @@ class pix2pix(object):
     def generator(self, image, y=None):
         with tf.variable_scope("generator") as scope:
 
-            print 'gen ' + str(image.shape)
 
             s = self.output_size
             s2, s4, s8, s16, s32, s64, s128 = int(s/2), int(s/4), int(s/8), int(s/16), int(s/32), int(s/64), int(s/128)
@@ -300,14 +307,27 @@ class pix2pix(object):
             # e7 is (2 x 2 x self.gf_dim*8)
             e8 = self.g_bn_e8(conv2d(lrelu(e7), self.gf_dim*8, name='g_e8_conv'))
             # e8 is (1 x 1 x self.gf_dim*8)
+            print "e8"
+            print e8.shape
 
-            print "e8", e8.shape
-            noise = tf.random_uniform(e8.shape[:-1].as_list() + [1,])
-            e8_noisy =  tf.add(e8, noise)
-            # e8_noisy = tf.concat([e8, noise], 3)
-            print "e8 noisy", e8_noisy.shape
+            # print "e8", e8.shape
+            # noise = tf.random_uniform(e8.shape[:-1].as_list() + [1,])
+            # e8_noisy =  tf.add(e8, noise)
+            # # e8_noisy = tf.concat([e8, noise], 3)
+            # print "e8 noisy", e8_noisy.shape
+            e8_flat = tf.reshape(e8, (self.batch_size*2, -1))
 
-            self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(e8_noisy),
+            self.z_mu = linear(e8_flat, self.n_z, scope=None, stddev=0.02, bias_start=0.0, with_w=False, name='z_mu')
+            self.z_sigma = linear(e8_flat, self.n_z, scope=None, stddev=0.02, bias_start=0.0, with_w=False, name='z_sigma')
+
+            samples = tf.random_normal(shape=(self.batch_size*2, self.n_z), mean=0.0, stddev=1.0)
+            z = self.z_mu + (samples*self.z_sigma)
+            z = tf.expand_dims(z, 1)
+            z = tf.expand_dims(z, 1)
+
+            print "z"
+            print z.shape
+            self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(z),
                 [self.batch_size*2, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
             d1 = tf.nn.dropout(self.g_bn_d1(self.d1), 0.5)
             d1 = tf.concat([d1, e7], 3)
@@ -360,7 +380,6 @@ class pix2pix(object):
         with tf.variable_scope("generator") as scope:
             scope.reuse_variables()
 
-            print 'sampler ' + str(image.shape)
 
             s = self.output_size
             s2, s4, s8, s16, s32, s64, s128 = int(s/2), int(s/4), int(s/8), int(s/16), int(s/32), int(s/64), int(s/128)
@@ -383,12 +402,19 @@ class pix2pix(object):
             e8 = self.g_bn_e8(conv2d(lrelu(e7), self.gf_dim*8, name='g_e8_conv'))
             # e8 is (1 x 1 x self.gf_dim*8)
 
-            noise = tf.random_uniform(e8.shape)
-            e8_noisy =  tf.add(e8, noise)
-            # noise = tf.random_uniform(e8.shape[:-1].as_list() + [1,])
-            # e8_noisy = tf.concat([e8, noise], 3)
+            # noise = tf.random_uniform(e8.shape)
+            # e8_noisy =  tf.add(e8, noise)
+            e8_flat = tf.reshape(e8, (self.batch_size*2, -1))
 
-            self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(e8_noisy),
+            self.z_mu = linear(e8_flat, self.n_z, scope=None, stddev=0.02, bias_start=0.0, with_w=False, name='z_mu')
+            self.z_sigma = linear(e8_flat, self.n_z, scope=None, stddev=0.02, bias_start=0.0, with_w=False, name='z_sigma')
+
+            samples = tf.random_normal(shape=(self.batch_size*2, self.n_z), mean=0.0, stddev=1.0)
+            z = self.z_mu + (samples*self.z_sigma)
+            z = tf.expand_dims(z, 1)
+            z = tf.expand_dims(z, 1)
+
+            self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(z),
                 [self.batch_size*2, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
             d1 = tf.nn.dropout(self.g_bn_d1(self.d1), 0.5)
             d1 = tf.concat([d1, e7], 3)
@@ -443,9 +469,11 @@ class pix2pix(object):
 
         x_data = np.expand_dims(x_data, axis=-1)
         x_data = np.expand_dims(x_data, axis=-1)
+        x_data = np.repeat(x_data, 3, axis=2)
 
         y_data = np.expand_dims(y_data, axis=-1)
         y_data = np.expand_dims(y_data, axis=-1)
+        y_data = np.repeat(y_data, 3, axis=2)
 
         x = tf.constant(x_data, dtype=tf.float32)
         y = tf.constant(y_data, dtype=tf.float32)
@@ -453,8 +481,10 @@ class pix2pix(object):
         g = tf.exp(-((x**2 + y**2)/(2.0*sigma**2)))
         return g / tf.reduce_sum(g)
 
-    def tf_ssim(self, img1, img2, cs_map=False, mean_metric=True, size=11, sigma=1.5):
-        window = _tf_fspecial_gauss(size, sigma) # window shape [size, size]
+    def tf_ssim(self, img1, img2, cs_map=False, mean_metric=True, size=31, sigma=9):
+        img1 = (img1+1)/2
+        img2 = (img2+1)/2
+        window = self._tf_fspecial_gauss(size, sigma) # window shape [size, size]
         K1 = 0.01
         K2 = 0.03
         L = 1  # depth of image (255 in case the image has a differnt scale)
@@ -515,7 +545,7 @@ class pix2pix(object):
         sample_files = glob('./datasets/{}/val/*.jpg'.format(self.dataset_name))
 
         # sort testing input
-        n = [int(i[:-3]) for i in map(lambda x: x.split('/')[-1].split('.jpg')[0], sample_files)]
+        n = [int(i) for i in map(lambda x: x.split('/')[-1].split('.jpg')[0], sample_files)]
         sample_files = [x for (y, x) in sorted(zip(n, sample_files))]
 
         # load testing input
