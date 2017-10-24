@@ -7,8 +7,6 @@ from model import pix2pix
 import tensorflow as tf
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--dataset_name', dest='dataset_name', default='facades', help='name of the dataset')
-parser.add_argument('--epoch', dest='epoch', type=int, default=200, help='# of epoch')
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=1, help='# images in batch')
 parser.add_argument('--train_size', dest='train_size', type=int, default=1e8, help='# images used to train')
 parser.add_argument('--load_size', dest='load_size', type=int, default=286, help='scale images to this size')
@@ -29,10 +27,17 @@ parser.add_argument('--print_freq', dest='print_freq', type=int, default=50, hel
 parser.add_argument('--continue_train', dest='continue_train', type=bool, default=False, help='if continue training, load the latest model: 1: true, 0: false')
 parser.add_argument('--serial_batches', dest='serial_batches', type=bool, default=False, help='f 1, takes images in order to make batches, otherwise takes them randomly')
 parser.add_argument('--serial_batch_iter', dest='serial_batch_iter', type=bool, default=True, help='iter into serial image list')
-parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint', help='models are saved here')
-parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
 parser.add_argument('--test_dir', dest='test_dir', default='./test', help='test sample are saved here')
-parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=100.0, help='weight on L1 term in objective')
+parser.add_argument('--dataset_name', dest='dataset_name', default='facades', help='name of the dataset')
+
+##### CHANGE THESE PER HYPERPARAMETER TEST #####
+parser.add_argument('--epoch', dest='epoch', type=int, default=30, help='# of epoch')
+parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
+parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint', help='models are saved here')
+parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=10.0, help='weight on L1 term in objective')
+parser.add_argument('--latent_lambda', dest='latent_lambda', type=float, default=1.0, help='weight on L1 term in objective')
+parser.add_argument('--ssim_lambda', dest='ssim_lambda', type=float, default=1.0, help='weight on L1 term in objective')
+parser.add_argument('--test_name', dest='test_name', default='baseline_test', help='name of hyperparameter test')
 
 args = parser.parse_args()
 
@@ -47,7 +52,9 @@ def main(_):
     with tf.Session() as sess:
         model = pix2pix(sess, image_size=args.fine_size, batch_size=args.batch_size,
                         output_size=args.fine_size, dataset_name=args.dataset_name,
-                        checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir)
+                        checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir,
+                        L1_lambda=args.L1_lambda, latent_lambda=args.latent_lambda, ssim_lambda=args.ssim_lambda,
+                        test_name=args.test_name)
 
         if args.phase == 'train':
             model.train(args)

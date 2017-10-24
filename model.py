@@ -14,10 +14,10 @@ import matplotlib.pyplot as plt
 
 class pix2pix(object):
     def __init__(self, sess, image_size=256,
-                 batch_size=1, sample_size=1, output_size=256,
-                 gf_dim=64, df_dim=64, L1_lambda=100,
+                 batch_size=2, sample_size=1, output_size=256,
+                 gf_dim=64, df_dim=64, L1_lambda=100, latent_lambda=1, ssim_lambda=1,
                  input_c_dim=3, output_c_dim=3, dataset_name='facades',
-                 checkpoint_dir=None, sample_dir=None, n_z=256):
+                 checkpoint_dir=None, sample_dir=None, n_z=256, test_name='baseline_test'):
         """
 
         Args:
@@ -44,6 +44,9 @@ class pix2pix(object):
         self.output_c_dim = output_c_dim
 
         self.L1_lambda = L1_lambda
+        self.latent_lambda = latent_lambda
+        self.ssim_lambda = ssim_lambda
+        self.test_name = test_name
 
         # batch normalization : deals with poor initialization helps gradient flow
         self.d_bn1 = batch_norm(name='d_bn1')
@@ -79,24 +82,24 @@ class pix2pix(object):
         self.real_B = self.real_data[:, :, :, :self.input_c_dim]
         self.real_A = self.real_data[:, :, :, self.input_c_dim:self.input_c_dim + self.output_c_dim]
  
-        noise1 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
-        noise2 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
+        rand1 = tf.random_uniform([1])
+        rand2 = tf.random_uniform([1])
+        # noise1 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
+        # noise2 = tf.random_uniform(self.real_A.shape[:-1].as_list() + [1,])
+        noise1 = tf.fill(self.real_A.shape[:-1].as_list() + [1,], rand1[0])
+        noise2 = tf.fill(self.real_A.shape[:-1].as_list() + [1,], rand2[0])
         self.real_A_noisy1 = tf.concat([self.real_A, noise1], 3)
         self.real_A_noisy2 = tf.concat([self.real_A, noise2], 3)
 
         self.real_A2 = tf.concat([self.real_A_noisy1, self.real_A_noisy2], 0)
         # self.real_A2 = tf.concat([self.real_A, self.real_A], 0)
 
-        print '1 ' + str(self.real_A_noisy1.shape)
-        print '2 ' + str(self.real_A_noisy2.shape)
-        print '3 ' + str(self.real_A2.shape)
 
         # Original shape: [1, 256, 256, 3]
         # New shape:      [1, 2, 256, 256, 3]
 
-        print self.real_A2.shape
         self.fake_B = self.generator(self.real_A2)
-        print self.fake_B.shape
+
 
         self.real_AB = tf.concat([self.real_A, self.real_B], 3)
 
@@ -111,13 +114,13 @@ class pix2pix(object):
 
         #self.fake_AB = tf.concat([self.real_A, self.fake_B], 3)
 
-        print self.real_AB.shape, self.fake_AB.shape
+
         self.D, self.D_logits = self.discriminator(self.real_AB, reuse=False)
         self.D_, self.D_logits_ = self.discriminator(self.fake_AB, reuse=True)
-        print self.D.shape, self.D_.shape
+
 
         self.fake_B_sample = self.sampler(self.real_A2)
-        print self.fake_B_sample.shape
+ 
 
         self.d_sum = tf.summary.histogram("d", self.D)
         self.d__sum = tf.summary.histogram("d_", self.D_[:1])
@@ -126,8 +129,11 @@ class pix2pix(object):
         self.d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
         self.d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
         
-        self.fake_B_norm_1 = self.fake_B[0] - tf.reduce_mean(self.fake_B[0])
-        self.fake_B_norm_2 = self.fake_B[1] - tf.reduce_mean(self.fake_B[1])
+        # self.fake_B_norm_1 = self.fake_B[0] - tf.reduce_mean(self.fake_B[0])
+        # self.fake_B_norm_2 = self.fake_B[1] - tf.reduce_mean(self.fake_B[1])
+
+        self.fake_B_norm_1 = self.fake_B[0]
+        self.fake_B_norm_2 = self.fake_B[1]
 
         # self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
         #                 - 5*tf.reduce_mean(tf.abs(self.fake_B_norm_1 - self.fake_B_norm_2)) \
@@ -139,9 +145,9 @@ class pix2pix(object):
         self.latent_loss = tf.reduce_mean(0.5 * tf.reduce_sum(tf.square(self.z_mu) + tf.square(self.z_sigma) - tf.log(tf.square(self.z_sigma)) -1, 1))
 
         self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
-                        +self.latent_loss \
-                        + 0.5* self.tf_ssim(self.fake_B_norm_1, self.fake_B_norm_2)
-                        #+ self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B)) \
+                        + self.latent_lambda * self.latent_loss \
+                        + self.ssim_lambda * self.tf_ssim(self.fake_B_norm_1, self.fake_B_norm_2)\
+                        + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
 
         #self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
         #                + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
@@ -180,7 +186,7 @@ class pix2pix(object):
         )
 
         save_images(samples, [self.batch_size*2, 1],
-                    './{}/train_{:02d}_{:04d}.png'.format(sample_dir, epoch, idx))
+                    './{}/{}_{:02d}_{:04d}.png'.format(sample_dir, self.test_name, epoch, idx))
         print("[Sample] d_loss: {:.8f}, g_loss: {:.8f}".format(d_loss, g_loss))
 
     def train(self, args):
@@ -246,6 +252,14 @@ class pix2pix(object):
                                                feed_dict={ self.real_data: batch_images })
                 self.writer.add_summary(summary_str, counter)
 
+                _, summary_str = self.sess.run([g_optim, self.g_sum],
+                                               feed_dict={ self.real_data: batch_images })
+                self.writer.add_summary(summary_str, counter)
+
+                _, summary_str = self.sess.run([g_optim, self.g_sum],
+                                               feed_dict={ self.real_data: batch_images })
+                self.writer.add_summary(summary_str, counter)
+
                 errD_fake = self.d_loss_fake.eval({self.real_data: batch_images})
                 errD_real = self.d_loss_real.eval({self.real_data: batch_images})
                 errG = self.g_loss.eval({self.real_data: batch_images})
@@ -307,8 +321,6 @@ class pix2pix(object):
             # e7 is (2 x 2 x self.gf_dim*8)
             e8 = self.g_bn_e8(conv2d(lrelu(e7), self.gf_dim*8, name='g_e8_conv'))
             # e8 is (1 x 1 x self.gf_dim*8)
-            print "e8"
-            print e8.shape
 
             # print "e8", e8.shape
             # noise = tf.random_uniform(e8.shape[:-1].as_list() + [1,])
@@ -320,13 +332,11 @@ class pix2pix(object):
             self.z_mu = linear(e8_flat, self.n_z, scope=None, stddev=0.02, bias_start=0.0, with_w=False, name='z_mu')
             self.z_sigma = linear(e8_flat, self.n_z, scope=None, stddev=0.02, bias_start=0.0, with_w=False, name='z_sigma')
 
-            samples = tf.random_normal(shape=(self.batch_size*2, self.n_z), mean=0.0, stddev=1.0)
+            samples = tf.random_normal(shape=(self.batch_size*2, self.n_z), mean=0.0, stddev=1)
             z = self.z_mu + (samples*self.z_sigma)
             z = tf.expand_dims(z, 1)
             z = tf.expand_dims(z, 1)
 
-            print "z"
-            print z.shape
             self.d1, self.d1_w, self.d1_b = deconv2d(tf.nn.relu(z),
                 [self.batch_size*2, s128, s128, self.gf_dim*8], name='g_d1', with_w=True)
             d1 = tf.nn.dropout(self.g_bn_d1(self.d1), 0.5)
@@ -560,7 +570,6 @@ class pix2pix(object):
         sample_images = [sample_images[i:i+self.batch_size]
                          for i in xrange(0, len(sample_images), self.batch_size)]
         sample_images = np.array(sample_images)
-        print(sample_images.shape)
 
         start_time = time.time()
         if self.load(self.checkpoint_dir):
