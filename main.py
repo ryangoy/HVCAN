@@ -29,6 +29,7 @@ parser.add_argument('--serial_batches', dest='serial_batches', type=bool, defaul
 parser.add_argument('--serial_batch_iter', dest='serial_batch_iter', type=bool, default=True, help='iter into serial image list')
 parser.add_argument('--test_dir', dest='test_dir', default='./test', help='test sample are saved here')
 parser.add_argument('--dataset_name', dest='dataset_name', default='facades', help='name of the dataset')
+parser.add_argument('--load_checkpoint', dest='load_checkpoint', default=False, help='load latest checkpoint')
 
 ##### CHANGE THESE PER HYPERPARAMETER TEST #####
 parser.add_argument('--epoch', dest='epoch', type=int, default=30, help='# of epoch')
@@ -52,8 +53,9 @@ def main(_):
     with tf.Session() as sess:
         model = pix2pix(sess, image_size=args.fine_size, batch_size=args.batch_size,
                         output_size=args.fine_size, dataset_name=args.dataset_name,
-                        checkpoint_dir=args.checkpoint_dir, sample_dir=args.sample_dir,
-                        L1_lambda=args.L1_lambda, latent_lambda=args.latent_lambda, ssim_lambda=args.ssim_lambda,
+                        checkpoint_dir=args.checkpoint_dir, load_checkpoint=args.load_checkpoint,
+                        sample_dir=args.sample_dir, L1_lambda=args.L1_lambda, 
+                        latent_lambda=args.latent_lambda, ssim_lambda=args.ssim_lambda,
                         test_name=args.test_name)
 
         if args.phase == 'train':

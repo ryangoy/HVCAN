@@ -17,7 +17,8 @@ class pix2pix(object):
                  batch_size=2, sample_size=1, output_size=256,
                  gf_dim=64, df_dim=64, L1_lambda=100, latent_lambda=1, ssim_lambda=1,
                  input_c_dim=3, output_c_dim=3, dataset_name='facades',
-                 checkpoint_dir=None, sample_dir=None, n_z=256, test_name='baseline_test'):
+                 checkpoint_dir=None, load_checkpoint=False, sample_dir=None,
+                 n_z=256, test_name='baseline_test'):
         """
 
         Args:
@@ -71,6 +72,7 @@ class pix2pix(object):
 
         self.dataset_name = dataset_name
         self.checkpoint_dir = checkpoint_dir
+        self.load_checkpoint = load_checkpoint
         self.build_model()
 
     def build_model(self):
@@ -207,7 +209,7 @@ class pix2pix(object):
         counter = 1
         start_time = time.time()
 
-        if self.load(self.checkpoint_dir):
+        if self.load_checkpoint and self.load(self.checkpoint_dir):
             print(" [*] Load SUCCESS")
         else:
             print(" [!] Load failed...")
@@ -523,7 +525,7 @@ class pix2pix(object):
 
     def save(self, checkpoint_dir, step):
         model_name = "pix2pix.model"
-        model_dir = "%s_%s_%s" % (self.dataset_name, self.batch_size, self.output_size)
+        model_dir = "%s_%s_%s_%s" % (self.dataset_name, self.batch_size, self.output_size, self.test_name)
         checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
 
         if not os.path.exists(checkpoint_dir):
@@ -534,6 +536,8 @@ class pix2pix(object):
                         global_step=step)
 
     def load(self, checkpoint_dir):
+        if not checkpoint_dir:
+            return False
         print(" [*] Reading checkpoint...")
 
         model_dir = "%s_%s_%s" % (self.dataset_name, self.batch_size, self.output_size)
