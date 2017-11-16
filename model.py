@@ -108,7 +108,7 @@ class pix2pix(object):
 
         self.real_AB = tf.concat([self.real_A, self.real_B], 3)
         # make real_AB same shape
-        self.real_AB = tf.concat([self.real_AB, self.real_AB], 0)
+        # self.real_AB = tf.concat([self.real_AB, self.real_AB], 0)
 
         print self.real_AB.shape
 
