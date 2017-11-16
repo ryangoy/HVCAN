@@ -102,14 +102,21 @@ class pix2pix(object):
 
         self.fake_B = self.generator(self.real_A2)
 
+        print 'real A', self.real_A.shape
+        print 'real B', self.real_B.shape
+        print 'fake B', self.fake_B.shape
 
         self.real_AB = tf.concat([self.real_A, self.real_B], 3)
+        # make real_AB same shape
+        self.real_AB = tf.concat([self.real_AB, self.real_AB], 0)
+
+        print self.real_AB.shape
 
         # Loop through extra output dimension, usually of size 2.
         fake_AB_pairs = []
 
         for index in range(self.fake_B.shape[0]):
-            fake_AB_pairs.append(tf.concat([self.real_A, self.fake_B[index: index+1, ...]], 3))
+            fake_AB_pairs.append(tf.concat([self.real_A[index%int(self.real_A.shape[0]): index%int(self.real_A.shape[0])+1, ...], self.fake_B[index: index+1, ...]], 3))
 
         # self.fake_AB will have batch size of fake_B.shape[1]*batch_size.
         self.fake_AB = tf.concat(fake_AB_pairs, 0)
@@ -144,12 +151,18 @@ class pix2pix(object):
         self.fake_B_norm_1 = tf.expand_dims(self.fake_B_norm_1, 0)
         self.fake_B_norm_2 = tf.expand_dims(self.fake_B_norm_2, 0)
 
+        # make real_B same shape
+        self.real_B = tf.concat([self.real_B, self.real_B], 0)
+
         self.latent_loss = tf.reduce_mean(0.5 * tf.reduce_sum(tf.square(self.z_mu) + tf.square(self.z_sigma) - tf.log(tf.square(self.z_sigma)) -1, 1))
+        self.ssim_loss = self.tf_ssim(self.fake_B_norm_1, self.fake_B_norm_2)
+        self.L1_loss = tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
+        self.L2_loss = tf.sqrt(tf.reduce_sum(tf.square(self.real_B - self.fake_B))) / tf.cast(tf.size(self.real_B), tf.float32)
 
         self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
                         + self.latent_lambda * self.latent_loss \
-                        + self.ssim_lambda * self.tf_ssim(self.fake_B_norm_1, self.fake_B_norm_2)\
-                        + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
+                        + self.ssim_lambda * self.ssim_loss \
+                        + self.L1_lambda * self.L1_loss
 
         #self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_))) \
         #                + self.L1_lambda * tf.reduce_mean(tf.abs(self.real_B - self.fake_B))
@@ -222,11 +235,20 @@ class pix2pix(object):
         # else:
         #     image_data = np.load('facades.npy')
         #     print 'image data shape load', image_data.shape
+        g_losses = []
+        ssim_losses = []
+        L1_losses = []
+        L2_losses = []
 
         for epoch in xrange(args.epoch):
             # data = glob('./datasets/{}/train/*.jpg'.format(self.dataset_name))
             #np.random.shuffle(data)
             batch_idxs = min(len(data), args.train_size) // self.batch_size
+
+            curr_g_loss = 0
+            curr_ssim_loss = 0
+            curr_L1_loss = 0
+            curr_L2_loss = 0
 
             for idx in xrange(0, batch_idxs):
                 if True:
@@ -265,17 +287,32 @@ class pix2pix(object):
                 errD_fake = self.d_loss_fake.eval({self.real_data: batch_images})
                 errD_real = self.d_loss_real.eval({self.real_data: batch_images})
                 errG = self.g_loss.eval({self.real_data: batch_images})
-
+                
                 counter += 1
                 print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
                     % (epoch, idx, batch_idxs,
                         time.time() - start_time, errD_fake+errD_real, errG))
 
-                if np.mod(counter, 100) == 1:
+                # if np.mod(counter, 100) == 1:
+                if np.mod(counter, 50) == 1:
                     self.sample_model(args.sample_dir, epoch, idx)
 
                 if np.mod(counter, 500) == 2:
                     self.save(args.checkpoint_dir, counter)
+
+                curr_g_loss += errG / batch_idxs
+                curr_ssim_loss += self.ssim_loss.eval({self.real_data: batch_images}) / batch_idxs
+                curr_L1_loss += self.L1_loss.eval({self.real_data: batch_images}) / batch_idxs
+                curr_L2_loss += self.L2_loss.eval({self.real_data: batch_images}) / batch_idxs
+
+            g_losses += [curr_g_loss]
+            ssim_losses += [curr_ssim_loss]
+            L1_losses += [curr_L1_loss]
+            L2_losses += [curr_L2_loss]
+
+        losses = np.transpose(np.array([g_losses, ssim_losses, L1_losses, L2_losses]))
+        print losses
+        np.savetxt("losses.csv", losses)
 
     def discriminator(self, image, y=None, reuse=False):
 
