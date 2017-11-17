@@ -14,10 +14,10 @@
 # python main.py --test_name=l1_10_ssim_10_latent_lambda_10 --epoch=30 --sample_dir=low_l1_high_latent_lambda_high_ssim --L1_lambda=10 --latent_lambda=10.0 --ssim_lambda=1.0
 # echo Starting ssim=10 quick test
 # python main.py --test_name=ssim_10_quick --epoch=2 --sample_dir=high_ssim_quick --L1_lambda=100 --latent_lambda=1.0 --ssim_lambda=10.0
+# echo Starting ssim=10 long latent=.1 test
+# python main.py --test_name=ssim_10_latent_e-1 --epoch=100 --sample_dir=high_ssim_long_low_latent --L1_lambda=100 --latent_lambda=.1 --ssim_lambda=10.0
 echo Starting ssim=10 long test
-python main.py --test_name=ssim_10_long6 --epoch=100 --sample_dir=high_ssim_long6 --L1_lambda=100 --latent_lambda=1.0 --ssim_lambda=10.0
-# echo Starting ssim=10 long test batch 2
-# python main.py --test_name=ssim_10_long5 --batch_size=2 --epoch=100 --sample_dir=high_ssim_long5 --L1_lambda=100 --latent_lambda=1.0 --ssim_lambda=10.0
+python main.py --test_name=ssim_10_long8 --batch_size=1 --epoch=100 --sample_dir=high_ssim_long8 --L1_lambda=100 --latent_lambda=1.0 --ssim_lambda=10.0
 
 
 
