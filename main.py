@@ -35,13 +35,12 @@ parser.add_argument('--load_checkpoint', dest='load_checkpoint', default=False, 
 parser.add_argument('--epoch', dest='epoch', type=int, default=30, help='# of epoch')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
 parser.add_argument('--checkpoint_dir', dest='checkpoint_dir', default='./checkpoint', help='models are saved here')
-parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=10.0, help='weight on L1 term in objective')
+parser.add_argument('--L1_lambda', dest='L1_lambda', type=float, default=100.0, help='weight on L1 term in objective')
 parser.add_argument('--latent_lambda', dest='latent_lambda', type=float, default=1.0, help='weight on L1 term in objective')
 parser.add_argument('--ssim_lambda', dest='ssim_lambda', type=float, default=1.0, help='weight on L1 term in objective')
 parser.add_argument('--test_name', dest='test_name', default='baseline_test', help='name of hyperparameter test')
 
 args = parser.parse_args()
-
 def main(_):
     if not os.path.exists(args.checkpoint_dir):
         os.makedirs(args.checkpoint_dir)
